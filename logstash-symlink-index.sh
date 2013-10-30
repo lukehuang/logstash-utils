@@ -291,12 +291,13 @@ symlink_indices() {
     return 0
   }
 
-  local errors=0 
+  local index_name result errors=0 start_at stop_at duration
   for index_name in $index_names; do
-    local start_at; start_at="$(date +%s)"
+    start_at="$(date +%s)"
     symlink_index "$index_name"
-    local stop_at; stop_at="$(date +%s)"
-    if [ "$?" -gt 0 ] ; then
+    result="$?"
+    stop_at="$(date +%s)"
+    if [ "$result" -gt 0 ] ; then
       log_error "Could not symlink index: '$index_name'."
       errors=$(( $errors + 1 ))
     else
@@ -347,7 +348,6 @@ if [ "$errors" -gt 0 ]; then
   log_warning "Could not symlink $errors indices."
   return 1
 else
-  log "Symlinked indices: $CONF_INDEX_NAMES"
   return 0
 fi
 
