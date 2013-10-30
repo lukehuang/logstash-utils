@@ -30,6 +30,10 @@ log_debug() {
   [ -n "$CONF_DEBUG" ] && log_stderr "[debug]   $*"
 }
 
+log_dryrun() {
+  [ -n "$CONF_DRY_RUN" ] && log "[dry-run] $*"
+}
+
 die() {
   log_stderr "$*"
   exit 1
@@ -44,7 +48,7 @@ run() {
 
   local command="$*"
   [ -n "$CONF_DRY_RUN" ] && {
-    echo "Would run '$command', however the CONF_DRY_RUN flag is set. Doing nothing."
+    log_dryrun "Would run '$command'."
     return 0
   }
   eval $command
@@ -280,6 +284,29 @@ symlink_index() {
   return 0
 }
 
+symlink_indices() {
+  local index_names; index_names=$@
+  [ -z "$index_names" ] && {
+    log_warning "No index names given, nothing to do."
+    return 0
+  }
+
+  local errors=0 
+  for index_name in $index_names; do
+    local start_at; start_at="$(date +%s)"
+    symlink_index "$index_name"
+    local stop_at; stop_at="$(date +%s)"
+    if [ "$?" -gt 0 ] ; then
+      log_error "Could not symlink index: '$index_name'."
+      errors=$(( $errors + 1 ))
+    else
+      local duration; duration="$(( $stop_at - $start_at ))"
+      log "Symlinked index '$index_name' in $duration seconds."
+    fi
+  done
+  return $errors
+}
+
 # Do the whole command line arguments / configuration file / help lambada in the
 # proper order.
 # 
@@ -314,18 +341,13 @@ errors=$(( $errors + $(check_CONF_DEST_DIR) ))
 [ "$errors" -gt 0 ] && die "$errors error(s) found in the configuration, aborting."
 unset errors
 
-# Do the actual work.
-errors=0
-for index_name in $CONF_INDEX_NAMES; do
-  symlink_index "$index_name" || {
-    log_error "Could not symlink index: '$index_name'."
-    errors=$(( $errors + 1 ))
-  }
-done
+symlink_indices $CONF_INDEX_NAMES
+errors=$?
 if [ "$errors" -gt 0 ]; then
-  log_warning "Could not symlink $errors indices!"
-  return 2
+  log_warning "Could not symlink $errors indices."
+  return 1
 else
+  log "Symlinked indices: $CONF_INDEX_NAMES"
   return 0
 fi
 
