@@ -2,11 +2,11 @@
 
 # The default configuration
 CONF_DEBUG=""
-CONF_DEST_DIR=""
 CONF_DRY_RUN=""
 CONF_FILE=""
+CONF_FIND_AGE=""
+CONF_FIND_NAME_MASK="logstash-????.??.??"
 CONF_HELP=""
-CONF_INDEX_NAMES=""
 CONF_PRINT=""
 CONF_SOURCE_DIR="/var/lib/elasticsearch/logstash/nodes/0/indices"
 
@@ -71,35 +71,6 @@ check_CONF_DRY_RUN() {
   return 0
 }
 
-check_CONF_DEST_DIR() {
-  local errors=0
-  if [ -z "$CONF_DEST_DIR" ]; then
-    log_error "No destination directory given."
-    errors=$(( $errors + 1 ))
-  elif [ ! -e "$CONF_DEST_DIR" ]; then
-    log_error "Destination '$CONF_DEST_DIR' does not exist."
-    errors=$(( $errors + 1 ))
-  elif [ ! -w "$CONF_DEST_DIR" ]; then
-    log_error "Destination '$CONF_DEST_DIR' is not writable."
-    errors=$(( $errors + 1 ))
-  elif [ ! -d "$CONF_DEST_DIR" ]; then
-    log_error "Destination '$CONF_DEST_DIR' is not a directory, aborting."
-    errors=$(( $errors + 1 ))
-  fi
-  echo $errors
-  return $errors
-}
-
-check_CONF_INDEX_NAMES() {
-  local errors=0
-  [ -z "$CONF_INDEX_NAMES" ] && {
-    log_error "No index name given."
-    errors=$(( $errors + 1 ))
-  }
-  echo $errors
-  return $errors
-}
-
 check_CONF_SOURCE_DIR() {
   local errors=0
   if [ -z "$CONF_SOURCE_DIR" ]; then
@@ -122,8 +93,8 @@ check_CONF_SOURCE_DIR() {
 # Parse the command line arguments and build a running configuration from them.
 parse_args() {
   local args; args="$@"
-  local short_args="c:,d,f:,h,n,t:"
-  local long_args="config:,debug,dry-run,from-dir:,help,print-config,to-dir:"
+  local short_args="a:,c:,d,f:,h,n"
+  local long_args="age:,config:,debug,dry-run,find-args:,from-dir:,help,print-config,to-dir:"
   local g; g=$(getopt -o "$short_args" -l "$long_args" -- $args) || die "Could not parse arguments, aborting."
   log_debug "args: $args, getopt: $g"
 
@@ -131,10 +102,9 @@ parse_args() {
   while true; do
     local a; a="$1"
 
-    # These are index names.
+    # This is the end of arguments
     if [ "$a" = "--" ] ; then
       shift
-      CONF_INDEX_NAMES="$@"
       return 0
 
     # This is the config file.
@@ -150,8 +120,13 @@ parse_args() {
     elif [ "$a" = "-n" -o "$a" = "--dry-run" ] ; then
       CONF_DRY_RUN="true"
 
+    # The find(1) additional arguments.
+    elif [ "$a" = "-a" -o "$a" = "--age" ] ; then
+      shift
+      CONF_FIND_AGE="$1"
+
     # The source directory. 
-    elif [ "$a" = "-f" -o "$a" = "--from-dir" ] ; then
+    elif [ "$a" = "-s" -o "$a" = "--source-dir" ] ; then
       shift
       CONF_SOURCE_DIR="$1"
 
@@ -159,14 +134,9 @@ parse_args() {
     elif [ "$a" = "-h" -o "$a" = "--help" ] ; then
       CONF_HELP="true"
 
-    # Help.
+    # Print the current configuration switch.
     elif [ "$a" = "--print-config" ] ; then
       CONF_PRINT="true"
-
-    # Destination directory.
-    elif [ "$a" = "-t" -o "$a" = "--to-dir" ] ; then
-      shift
-      CONF_DEST_DIR="$1"
 
     # Dazed and confused...
     else
@@ -181,16 +151,15 @@ parse_args() {
 
 print_help() {
   cat <<HERE
-This shell script rsyncs a Logstash/elasticsearch index from source to 
-destination, removes the source and replaces it with a symlink to destination.
-See https://github.com/shkitch/logstash-symlink-index for details.
+This shell outputs the available Logstash indices.
+See https://github.com/shkitch/logstash-list-indices for details.
 
-Usage: logstash-symlink-index [options] <index_name> ... 
+Usage: logstash-list-indices [options] <index_name> ... 
 
 Options are:
-  -f, --from-dir : source directory where indices are stored. Symlinks are created
-                   here, too.
-  -t, --to-dir   : Destination directory.
+  -f, --from-dir : source directory where indices are stored.
+  -a, --age      : age of the indices, this gets passed on as the '-mtime'
+                   parameter to find(1)
 
   -c, --config       : Path to config file.
       --print-config : Print the current configuration, then exit.
@@ -204,11 +173,9 @@ HERE
 # instead of dash but this would make the script shell-specific.
 print_config() {
   log "CONF_DEBUG='$CONF_DEBUG'"
-  log "CONF_DEST_DIR='$CONF_DEST_DIR'"
   log "CONF_DRY_RUN='$CONF_DRY_RUN'"
   log "CONF_FILE='$CONF_FILE'"
   log "CONF_HELP='$CONF_HELP'"
-  log "CONF_INDEX_NAMES='$CONF_INDEX_NAMES'"
   log "CONF_PRINT='$CONF_PRINT'"
   log "CONF_SOURCE_DIR='$CONF_SOURCE_DIR'"
 }
@@ -240,72 +207,18 @@ load_conffile() {
   return $errors
 }
 
-symlink_index() {
-  local index_name="$1"
-  [ -z "$index_name" ] && {
-    log_warning "No index name given."
-    return 0
-  }
-  
-  local index_path; index_path="$CONF_SOURCE_DIR/$index_name"
-  
-  if [ ! -e "$index_path" ]; then
-    log_error "Source index path '$index_path' does not exist."
-    return 1
-  elif [ ! -r "$index_path" ]; then
-    log_error "Source index path '$index_path' is not readable."
-    return 1
-  elif [ ! -d "$index_path" ]; then
-    log_error "Source index path '$index_path' is not a directory. This is unusual."
-    return 1
-  elif [ -L "$index_path" ]; then
-    log_error "Source index path '$index_path' is a symlink. This index has probably already been moved."
-    return 1
-  fi
-
-  # rsync source index to the destination
-  run "rsync -a $index_path $CONF_DEST_DIR" || {
-    log_error ": $run"
-    return 1
-  }
-
-  # Remove the source index
-  run "rm -r $index_path" || {
+list_indices() {
+  local a; [ ! -z "$CONF_FIND_AGE" ] && a="-daystart -mtime $CONF_FIND_AGE"
+  local r; r="find $CONF_SOURCE_DIR -maxdepth 1 -iname 'logstash-????.??.??' $a | sort"
+  local indices; indices="$(run $r)"
+  [ $? -ne 0 ] && {
     log_error "Oops, something went wrong."
     return 1
   }
 
-  # Create the symlink in place of the source index
-  local symlink_path="$CONF_DEST_DIR/$index_name"
-  run "ln -s $symlink_path $CONF_SOURCE_DIR" || {
-    log_error "Oops, something went wrong."
-  }
-  
+  indices="$( echo $indices | sed s+$CONF_SOURCE_DIR/++g )" 
+  [ ! -z "$indices" ] && echo $indices
   return 0
-}
-
-symlink_indices() {
-  local index_names; index_names=$@
-  [ -z "$index_names" ] && {
-    log_warning "No index names given, nothing to do."
-    return 0
-  }
-
-  local index_name result errors=0 start_at stop_at duration
-  for index_name in $index_names; do
-    start_at="$(date +%s)"
-    symlink_index "$index_name"
-    result="$?"
-    stop_at="$(date +%s)"
-    if [ "$result" -gt 0 ] ; then
-      log_error "Could not symlink index: '$index_name'."
-      errors=$(( $errors + 1 ))
-    else
-      local duration; duration="$(( $stop_at - $start_at ))"
-      log "Symlinked index '$index_name' in $duration seconds."
-    fi
-  done
-  return $errors
 }
 
 # Do the whole command line arguments / configuration file / help lambada in the
@@ -336,19 +249,10 @@ parse_args $@
 errors=0
 errors=$(( $errors + $(check_CONF_DEBUG) ))
 errors=$(( $errors + $(check_CONF_DRY_RUN) ))
-errors=$(( $errors + $(check_CONF_INDEX_NAMES) ))
 errors=$(( $errors + $(check_CONF_SOURCE_DIR) ))
-errors=$(( $errors + $(check_CONF_DEST_DIR) ))
 [ "$errors" -gt 0 ] && die "$errors error(s) found in the configuration, aborting."
 unset errors
 
-symlink_indices $CONF_INDEX_NAMES
-errors=$?
-if [ "$errors" -gt 0 ]; then
-  log_warning "Could not symlink $errors indices."
-  return 1
-else
-  return 0
-fi
+list_indices
 
 # vim: set ts=2 sw=2 et cc=80:
