@@ -9,6 +9,7 @@ CONF_HELP=""
 CONF_INDEX_NAMES=""
 CONF_PRINT=""
 CONF_SOURCE_DIR="/var/lib/elasticsearch/logstash/nodes/0/indices"
+
 #}}}
 # Various logging functions#{{{
 log() {
@@ -143,8 +144,9 @@ See https://github.com/shkitch/logstash-symlink-index for details.
 Usage: logstash-symlink-index [options] <index_name> ... 
 
 Options are:
-  -f, --from-dir : source directory where indices are stored. Symlinks are created
-                   here, too.
+  -f, --from-dir : source directory where indices are stored. Symlinks are
+                   created here, too. Default is 
+                   /var/lib/elasticsearch/logstash/nodes/0/indices
   -t, --to-dir   : Destination directory.
 
   -c, --config       : Path to config file.
