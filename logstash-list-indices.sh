@@ -1,15 +1,19 @@
-#!/bin/sh
+#!/bin/bash
 
-# The default configuration
+# The default configuration#{{{
+#
+CONF_DATE_FROM=""
+CONF_DATE_TO=""
 CONF_DEBUG=""
 CONF_DRY_RUN=""
 CONF_FILE=""
-CONF_FIND_AGE=""
-CONF_FIND_NAME_MASK="logstash-????.??.??"
 CONF_HELP=""
+CONF_INDEX_NAME_PREFIX="logstash-"
 CONF_PRINT=""
 CONF_SOURCE_DIR="/var/lib/elasticsearch/logstash/nodes/0/indices"
-
+#}}}
+# Various logging functions#{{{
+#
 log() {
   echo "$*"
 }
@@ -33,13 +37,17 @@ log_debug() {
 log_dryrun() {
   [ -n "$CONF_DRY_RUN" ] && log "[dry-run] $*"
 }
-
+#}}}
+# Misc functions#{{{
+#
+# Die gracefully.
 die() {
   log_stderr "$*"
   exit 1
 }
 
 # Run the specified command (or not, depending on CONF_DRY_RUN).
+#
 run() {
   [ -z "$*" ] && {
     log_warning "Nothing to execute."
@@ -57,48 +65,25 @@ run() {
   return $retval
 }
 
-check_CONF_DEBUG() {
-  log_debug "Running in debug mode."
-  echo 0
-  return 0
-}
-
-check_CONF_DRY_RUN() {
-  [ -n "$CONF_DRY_RUN" ] && {
-    log_warning "Running with CONF_DRY_RUN enabled. Not doing anything, just reporting what would be done."
-  }
-  echo 0
-  return 0
-}
-
-check_CONF_SOURCE_DIR() {
-  local errors=0
-  if [ -z "$CONF_SOURCE_DIR" ]; then
-    log_error "No source directory given."
-    errors=$(( $errors + 1 ))
-  elif [ ! -e "$CONF_SOURCE_DIR" ]; then
-    log_error "Source directory '$CONF_SOURCE_DIR' does not exist."
-    errors=$(( $errors + 1 ))
-  elif [ ! -d "$CONF_SOURCE_DIR" ]; then
-    log_error "Source directory '$CONF_SOURCE_DIR' is not a directory."
-    errors=$(( $errors + 1 ))
-  elif [ ! -r "$CONF_SOURCE_DIR" ]; then
-    log_error "Source directory '$CONF_SOURCE_DIR' is not readable."
-    errors=$(( $errors + 1 ))
-  fi
-  echo $errors
-  return $errors
-}
-
+#
 # Parse the command line arguments and build a running configuration from them.
+#
+# Note that this function should be called like this:
+#   parse_args "@"
+
+# ... and *NOT* like this:
+#   parse_args $@
+#
+# The second variant will work but it will cause havoc if the arguments contain
+# spaces!
+#
 parse_args() {
-  local args; args="$@"
-  local short_args="a:,c:,d,f:,h,n"
-  local long_args="age:,config:,debug,dry-run,find-args:,from-dir:,help,print-config,to-dir:"
-  local g; g=$(getopt -o "$short_args" -l "$long_args" -- $args) || die "Could not parse arguments, aborting."
+  local short_args="a:,c:,d,f:,h,n,s:,t:"
+  local long_args="age:,config:,debug,dry-run,from:,help,print-config,source-dir:,to:"
+  local g; g=$(getopt -n logstash-list-indices -o $short_args -l $long_args -- "$@") || die "Could not parse arguments, aborting."
   log_debug "args: $args, getopt: $g"
 
-  eval set -- $g
+  eval set -- "$g"
   while true; do
     local a; a="$1"
 
@@ -120,11 +105,6 @@ parse_args() {
     elif [ "$a" = "-n" -o "$a" = "--dry-run" ] ; then
       CONF_DRY_RUN="true"
 
-    # The find(1) additional arguments.
-    elif [ "$a" = "-a" -o "$a" = "--age" ] ; then
-      shift
-      CONF_FIND_AGE="$1"
-
     # The source directory. 
     elif [ "$a" = "-s" -o "$a" = "--source-dir" ] ; then
       shift
@@ -133,6 +113,16 @@ parse_args() {
     # Help.
     elif [ "$a" = "-h" -o "$a" = "--help" ] ; then
       CONF_HELP="true"
+
+    # From date.
+    elif [ "$a" = "-f" -o "$a" = "--from" ] ; then
+      shift
+      CONF_DATE_FROM="$1"
+
+    # To date.
+    elif [ "$a" = "-t" -o "$a" = "--to" ] ; then
+      shift
+      CONF_DATE_TO="$1"
 
     # Print the current configuration switch.
     elif [ "$a" = "--print-config" ] ; then
@@ -157,21 +147,28 @@ See https://github.com/shkitch/logstash-list-indices for details.
 Usage: logstash-list-indices [options] <index_name> ... 
 
 Options are:
-  -f, --from-dir : source directory where indices are stored.
-  -a, --age      : age of the indices, this gets passed on as the '-mtime'
-                   parameter to find(1)
+  -a, --age        : List indices that are this old. (UNIMPLEMENTED)
+  -f, --from       : List indices from this date forward.
+  -s, --source-dir : source directory where indices are stored.
+  -t, --to         : List indices up to this date.
 
   -c, --config       : Path to config file.
-      --print-config : Print the current configuration, then exit.
   -d, --debug        : Enable debug output.
-  -n, --dry-run      : Don't do anyhing, just report what would be done.
   -h, --help         : This text
+  -n, --dry-run      : Don't do anyhing, just report what would be done.
+      --print-config : Print the current configuration, then exit.
 HERE
 }
 
-# Print the current configuration. This could be done more clevery in bash 
-# instead of dash but this would make the script shell-specific.
+#
+# Print the current configuration. 
+# 
+# NOTE: This could be done more clevery in bash instead of dash but this would
+# make the script shell-specific.
+#
 print_config() {
+  log "CONF_DATE_FROM='$CONF_DATE_FROM'"
+  log "CONF_DATE_TO='$CONF_DATE_TO'"
   log "CONF_DEBUG='$CONF_DEBUG'"
   log "CONF_DRY_RUN='$CONF_DRY_RUN'"
   log "CONF_FILE='$CONF_FILE'"
@@ -207,9 +204,100 @@ load_conffile() {
   return $errors
 }
 
-list_indices() {
-  local a; [ ! -z "$CONF_FIND_AGE" ] && a="-daystart -mtime $CONF_FIND_AGE"
-  local r; r="find $CONF_SOURCE_DIR -maxdepth 1 -iname 'logstash-????.??.??' $a | sort"
+#}}}
+# Date functions#{{{
+#
+# Check if the given date is in the yyyy.mm.dd format.
+#
+is_date_absolute() {
+  local d="$1"
+  [ -z "$d" ] && {
+    log_error "No date given."
+    return 1
+  }
+  echo "$d" | grep -P '^\d{4}.\d{2}.\d{2}$' 2>&1 > /dev/null
+  return $?
+}
+
+#
+# Convert given date in date(1) format to absolute date in yyyy.mm.dd format.
+#
+get_absolute_date() {
+  local d="$@"
+  [ -z "$d" ] && {
+    log_error "No date given."
+    return 1
+  }
+  
+  local a
+  a=$(date +%Y.%m.%d --date="$d") || {
+    log_error "could not convert date '$d' to absolute date."
+    return 1
+  }
+
+  echo "$a"
+  return 0
+}
+#}}}
+# Checker functions#{{{
+
+check_CONF_DEBUG() {
+  log_debug "Running in debug mode."
+  return 0
+}
+
+check_CONF_DRY_RUN() {
+  [ -n "$CONF_DRY_RUN" ] && {
+    log_warning "Running with CONF_DRY_RUN enabled. Not doing anything, just reporting what would be done."
+  }
+  return 0
+}
+
+check_CONF_SOURCE_DIR() {
+  local errors=0
+  if [ -z "$CONF_SOURCE_DIR" ]; then
+    log_error "No source directory given."
+    errors=$(( $errors + 1 ))
+  elif [ ! -e "$CONF_SOURCE_DIR" ]; then
+    log_error "Source directory '$CONF_SOURCE_DIR' does not exist."
+    errors=$(( $errors + 1 ))
+  elif [ ! -d "$CONF_SOURCE_DIR" ]; then
+    log_error "Source directory '$CONF_SOURCE_DIR' is not a directory."
+    errors=$(( $errors + 1 ))
+  elif [ ! -r "$CONF_SOURCE_DIR" ]; then
+    log_error "Source directory '$CONF_SOURCE_DIR' is not readable."
+    errors=$(( $errors + 1 ))
+  fi
+  return $errors
+}
+
+check_CONF_DATE_FROM() {
+  # It is a-ok if no date is given.
+  [ -z "$CONF_DATE_FROM" ] && {
+    return 0
+  }
+
+  # If the given date is not absolute, make it so.
+  is_date_absolute "$CONF_DATE_FROM" || CONF_DATE_FROM="$(get_absolute_date "$CONF_DATE_FROM")" || return 1
+  return 0
+}
+
+check_CONF_DATE_TO() {
+  # If no date is given, make today the default.
+  [ -z "$CONF_DATE_TO" ] && {
+    CONF_DATE_TO="$(date +%Y.%m.%d)"
+    return 0
+  }
+
+  # If the given date is not absolute, make it so.
+  is_date_absolute "$CONF_DATE_TO" || CONF_DATE_TO="$(get_absolute_date "$CONF_DATE_TO")" || return 1
+  return 0
+}
+#}}}
+# Do the actual work functions#{{{
+
+get_index_list() {
+  local r; r="ls -d $CONF_SOURCE_DIR/logstash-????.??.??"
   local indices; indices="$(run $r)"
   [ $? -ne 0 ] && {
     log_error "Oops, something went wrong."
@@ -217,42 +305,61 @@ list_indices() {
   }
 
   indices="$( echo $indices | sed s+$CONF_SOURCE_DIR/++g )" 
-  [ ! -z "$indices" ] && echo $indices
+  [ -n "$indices" ] && echo $indices
   return 0
 }
 
+prune_index_list() {
+  local f; f="${CONF_INDEX_NAME_PREFIX}${CONF_DATE_FROM}"
+  local t; t="${CONF_INDEX_NAME_PREFIX}${CONF_DATE_TO}"
+  while [ -n "$1" ]; do
+    local i="$1"
+    if [ "$i" \> "$f" -a "$i" \< "$t" -o "$i" = "$f" -o "$i" = "$t" ]; then
+      echo $i
+    fi
+    shift
+  done
+}
+#}}}
 # Do the whole command line arguments / configuration file / help lambada in the
 # proper order.
-# 
+#
 # First, parse the command line arguments. to see if the user has given us a
 # configuration file.
-parse_args $@
-#
+parse_args "$@"
+
 # Do the help thing if the user so wishes.
 [ -n "$CONF_HELP" ] && {
   print_help
   exit 0
 }
-#
+
 # Check if we've got a configuration file via the command-line switches. If so,
 # load it. Then, parse the arguments *again* because by convention they should
 # override the stuff given in the configuration file.
-[ -n "$CONF_FILE" ] && load_conffile "$CONF_FILE" && parse_args $@
-#
+[ -n "$CONF_FILE" ] && load_conffile "$CONF_FILE" && parse_args "$@"
+
+# We apparently have some configuration now, let's check its sanity.
+errors=0
+check_CONF_DATE_FROM; errors=$(( $errors + $? ))
+check_CONF_DATE_TO; errors=$(( $errors + $? ))
+check_CONF_DEBUG; errors=$(( $errors + $? ))
+check_CONF_DRY_RUN; errors=$(( $errors + $? ))
+check_CONF_SOURCE_DIR; errors=$(( $errors + $? ))
+
 # Print the config if so inclined.
 [ -n "$CONF_PRINT" ] && {
   print_config
   exit 0
 }
-#
-# We apparently have some configuration now, let's check its sanity.
-errors=0
-errors=$(( $errors + $(check_CONF_DEBUG) ))
-errors=$(( $errors + $(check_CONF_DRY_RUN) ))
-errors=$(( $errors + $(check_CONF_SOURCE_DIR) ))
+
+# Stop if there are any errors in the configuration.
 [ "$errors" -gt 0 ] && die "$errors error(s) found in the configuration, aborting."
 unset errors
 
-list_indices
+# Do the actual work
+log_debug "Listing indices from date $CONF_DATE_FROM to date $CONF_DATE_TO"
+INDICES="$(get_index_list)"
+prune_index_list $INDICES | sed ''
 
-# vim: set ts=2 sw=2 et cc=80:
+# vim: set tabstop=2 shiftwidth=0 expandtab colorcolumn=80 foldmethod=marker foldcolumn=3 foldlevel=0:
