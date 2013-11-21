@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # The default configuration#{{{
 #
@@ -11,6 +11,7 @@ CONF_HELP=""
 CONF_INDEX_NAME_PREFIX="logstash-"
 CONF_PRINT=""
 CONF_SOURCE_DIR="/var/lib/elasticsearch/logstash/nodes/0/indices"
+
 #}}}
 # Various logging functions#{{{
 #
@@ -37,6 +38,7 @@ log_debug() {
 log_dryrun() {
   [ -n "$CONF_DRY_RUN" ] && log "[dry-run] $*"
 }
+
 #}}}
 # Misc functions#{{{
 #
@@ -79,7 +81,7 @@ run() {
 #
 parse_args() {
   local short_args="a:,c:,d,f:,h,n,s:,t:"
-  local long_args="age:,config:,debug,dry-run,from:,help,print-config,source-dir:,to:"
+  local long_args="age:,config:,debug,dry-run,from:,help,index-name-prefix:,print-config,source-dir:,to:"
   local g; g=$(getopt -n logstash-list-indices -o $short_args -l $long_args -- "$@") || die "Could not parse arguments, aborting."
   log_debug "args: $args, getopt: $g"
 
@@ -128,6 +130,11 @@ parse_args() {
     elif [ "$a" = "--print-config" ] ; then
       CONF_PRINT="true"
 
+    # Index name prefix switch.
+    elif [ "$a" = "--index-name-prefix" ] ; then
+      shift
+      CONF_INDEX_NAME_PREFIX="$1"
+
     # Dazed and confused...
     else
       die "I know about the '$a' argument, but I don't know what to do with it, aborting."
@@ -147,16 +154,24 @@ See https://github.com/shkitch/logstash-list-indices for details.
 Usage: logstash-list-indices [options] <index_name> ... 
 
 Options are:
-  -a, --age        : List indices that are this old. (UNIMPLEMENTED)
-  -f, --from       : List indices from this date forward.
-  -s, --source-dir : source directory where indices are stored.
-  -t, --to         : List indices up to this date.
+  -f, --from       : List indices from this date forward. Accepts date(1)
+                     formatting or dates in yyyy.mm.dd format.
+  -s, --source-dir : source directory where indices are stored, default is
+                     '/var/lib/elasticsearch/logstash/nodes/0/indices'
+  -t, --to         : List indices up to this date. Accepts date(1) formatting or
+                     dates in yyyy.mm.dd format.
+
+      --index-name-prefix : Indices have this prefix, default is 'logstash-'
 
   -c, --config       : Path to config file.
   -d, --debug        : Enable debug output.
   -h, --help         : This text
   -n, --dry-run      : Don't do anyhing, just report what would be done.
       --print-config : Print the current configuration, then exit.
+
+NOTE: if you use date(1) formats in --from or --to, be sure to quote the 
+arguments. E.g.: use "logstash-list-indices --from '1 week ago'", and not
+"logstash-list-indices --from 1 week ago". 
 HERE
 }
 
@@ -164,7 +179,7 @@ HERE
 # Print the current configuration. 
 # 
 # NOTE: This could be done more clevery in bash instead of dash but this would
-# make the script shell-specific.
+# make the script shell-specific. For example, using the ${!CONF_*} expansion.
 #
 print_config() {
   log "CONF_DATE_FROM='$CONF_DATE_FROM'"
@@ -173,6 +188,7 @@ print_config() {
   log "CONF_DRY_RUN='$CONF_DRY_RUN'"
   log "CONF_FILE='$CONF_FILE'"
   log "CONF_HELP='$CONF_HELP'"
+  log "CONF_INDEX_NAME_PREFIX='$CONF_INDEX_NAME_PREFIX'"
   log "CONF_PRINT='$CONF_PRINT'"
   log "CONF_SOURCE_DIR='$CONF_SOURCE_DIR'"
 }
@@ -238,6 +254,7 @@ get_absolute_date() {
   echo "$a"
   return 0
 }
+
 #}}}
 # Checker functions#{{{
 
@@ -293,6 +310,7 @@ check_CONF_DATE_TO() {
   is_date_absolute "$CONF_DATE_TO" || CONF_DATE_TO="$(get_absolute_date "$CONF_DATE_TO")" || return 1
   return 0
 }
+
 #}}}
 # Do the actual work functions#{{{
 
@@ -320,6 +338,7 @@ prune_index_list() {
     shift
   done
 }
+
 #}}}
 # Do the whole command line arguments / configuration file / help lambada in the
 # proper order.
@@ -360,6 +379,7 @@ unset errors
 # Do the actual work
 log_debug "Listing indices from date $CONF_DATE_FROM to date $CONF_DATE_TO"
 INDICES="$(get_index_list)"
-prune_index_list $INDICES | sed ''
+log_debug "Considering the following indices for output: '$INDICES'"
+prune_index_list $INDICES
 
 # vim: set tabstop=2 shiftwidth=0 expandtab colorcolumn=80 foldmethod=marker foldcolumn=3 foldlevel=0:
