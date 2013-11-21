@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# The default configuration
+# The default configuration#{{{
 CONF_DEBUG=""
 CONF_DEST_DIR=""
 CONF_DRY_RUN=""
@@ -9,7 +9,8 @@ CONF_HELP=""
 CONF_INDEX_NAMES=""
 CONF_PRINT=""
 CONF_SOURCE_DIR="/var/lib/elasticsearch/logstash/nodes/0/indices"
-
+#}}}
+# Various logging functions#{{{
 log() {
   echo "$*"
 }
@@ -33,13 +34,19 @@ log_debug() {
 log_dryrun() {
   [ -n "$CONF_DRY_RUN" ] && log "[dry-run] $*"
 }
-
+#}}}
+# Misc functions#{{{
+#
+# Die gracefully
+#
 die() {
   log_stderr "$*"
   exit 1
 }
 
+#
 # Run the specified command (or not, depending on CONF_DRY_RUN).
+#
 run() {
   [ -z "$*" ] && {
     log_warning "Nothing to execute."
@@ -57,74 +64,22 @@ run() {
   return $retval
 }
 
-check_CONF_DEBUG() {
-  log_debug "Running in debug mode."
-  echo 0
-  return 0
-}
-
-check_CONF_DRY_RUN() {
-  [ -n "$CONF_DRY_RUN" ] && {
-    log_warning "Running with CONF_DRY_RUN enabled. Not doing anything, just reporting what would be done."
-  }
-  echo 0
-  return 0
-}
-
-check_CONF_DEST_DIR() {
-  local errors=0
-  if [ -z "$CONF_DEST_DIR" ]; then
-    log_error "No destination directory given."
-    errors=$(( $errors + 1 ))
-  elif [ ! -e "$CONF_DEST_DIR" ]; then
-    log_error "Destination '$CONF_DEST_DIR' does not exist."
-    errors=$(( $errors + 1 ))
-  elif [ ! -w "$CONF_DEST_DIR" ]; then
-    log_error "Destination '$CONF_DEST_DIR' is not writable."
-    errors=$(( $errors + 1 ))
-  elif [ ! -d "$CONF_DEST_DIR" ]; then
-    log_error "Destination '$CONF_DEST_DIR' is not a directory, aborting."
-    errors=$(( $errors + 1 ))
-  fi
-  echo $errors
-  return $errors
-}
-
-check_CONF_INDEX_NAMES() {
-  local errors=0
-  [ -z "$CONF_INDEX_NAMES" ] && {
-    log_error "No index name given."
-    errors=$(( $errors + 1 ))
-  }
-  echo $errors
-  return $errors
-}
-
-check_CONF_SOURCE_DIR() {
-  local errors=0
-  if [ -z "$CONF_SOURCE_DIR" ]; then
-    log_error "No source directory given."
-    errors=$(( $errors + 1 ))
-  elif [ ! -e "$CONF_SOURCE_DIR" ]; then
-    log_error "Source directory '$CONF_SOURCE_DIR' does not exist."
-    errors=$(( $errors + 1 ))
-  elif [ ! -d "$CONF_SOURCE_DIR" ]; then
-    log_error "Source directory '$CONF_SOURCE_DIR' is not a directory."
-    errors=$(( $errors + 1 ))
-  elif [ ! -r "$CONF_SOURCE_DIR" ]; then
-    log_error "Source directory '$CONF_SOURCE_DIR' is not readable."
-    errors=$(( $errors + 1 ))
-  fi
-  echo $errors
-  return $errors
-}
-
+#
 # Parse the command line arguments and build a running configuration from them.
+#
+# Note that this function should be called like this:
+#   parse_args "@"
+
+# ... and *NOT* like this:
+#   parse_args $@
+#
+# The second variant will work but it will cause havoc if the arguments contain
+# spaces!
+#
 parse_args() {
-  local args; args="$@"
   local short_args="c:,d,f:,h,n,t:"
   local long_args="config:,debug,dry-run,from-dir:,help,print-config,to-dir:"
-  local g; g=$(getopt -o "$short_args" -l "$long_args" -- $args) || die "Could not parse arguments, aborting."
+  local g; g=$(getopt -o "$short_args" -l "$long_args" -- "$@") || die "Could not parse arguments, aborting."
   log_debug "args: $args, getopt: $g"
 
   eval set -- $g
@@ -177,7 +132,7 @@ parse_args() {
   done
 
   return 0
-}
+} 
 
 print_help() {
   cat <<HERE
@@ -200,8 +155,12 @@ Options are:
 HERE
 }
 
-# Print the current configuration. This could be done more clevery in bash 
-# instead of dash but this would make the script shell-specific.
+#
+# Print the current configuration. 
+# 
+# NOTE: This could be done more clevery in bash instead of dash but this would
+# make the script shell-specific.
+#
 print_config() {
   log "CONF_DEBUG='$CONF_DEBUG'"
   log "CONF_DEST_DIR='$CONF_DEST_DIR'"
@@ -213,7 +172,9 @@ print_config() {
   log "CONF_SOURCE_DIR='$CONF_SOURCE_DIR'"
 }
 
+#
 # Build a running configuration from the configuration file.
+#
 load_conffile() {
   local errors=0 fn="$1"
   if [ -z "$fn" ]; then
@@ -239,6 +200,66 @@ load_conffile() {
   fi
   return $errors
 }
+#}}}
+# Checker functions#{{{
+check_CONF_DEBUG() {
+  log_debug "Running in debug mode."
+  return 0
+}
+
+check_CONF_DRY_RUN() {
+  [ -n "$CONF_DRY_RUN" ] && {
+    log_warning "Running with CONF_DRY_RUN enabled. Not doing anything, just reporting what would be done."
+  }
+  return 0
+}
+
+check_CONF_DEST_DIR() {
+  local errors=0
+  if [ -z "$CONF_DEST_DIR" ]; then
+    log_error "No destination directory given."
+    errors=$(( $errors + 1 ))
+  elif [ ! -e "$CONF_DEST_DIR" ]; then
+    log_error "Destination '$CONF_DEST_DIR' does not exist."
+    errors=$(( $errors + 1 ))
+  elif [ ! -w "$CONF_DEST_DIR" ]; then
+    log_error "Destination '$CONF_DEST_DIR' is not writable."
+    errors=$(( $errors + 1 ))
+  elif [ ! -d "$CONF_DEST_DIR" ]; then
+    log_error "Destination '$CONF_DEST_DIR' is not a directory, aborting."
+    errors=$(( $errors + 1 ))
+  fi
+  return $errors
+}
+
+check_CONF_INDEX_NAMES() {
+  local errors=0
+  [ -z "$CONF_INDEX_NAMES" ] && {
+    log_error "No index name given."
+    errors=$(( $errors + 1 ))
+  }
+  return $errors
+}
+
+check_CONF_SOURCE_DIR() {
+  local errors=0
+  if [ -z "$CONF_SOURCE_DIR" ]; then
+    log_error "No source directory given."
+    errors=$(( $errors + 1 ))
+  elif [ ! -e "$CONF_SOURCE_DIR" ]; then
+    log_error "Source directory '$CONF_SOURCE_DIR' does not exist."
+    errors=$(( $errors + 1 ))
+  elif [ ! -d "$CONF_SOURCE_DIR" ]; then
+    log_error "Source directory '$CONF_SOURCE_DIR' is not a directory."
+    errors=$(( $errors + 1 ))
+  elif [ ! -r "$CONF_SOURCE_DIR" ]; then
+    log_error "Source directory '$CONF_SOURCE_DIR' is not readable."
+    errors=$(( $errors + 1 ))
+  fi
+  return $errors
+}
+#}}}
+# Do tha work functions#{{{
 
 symlink_index() {
   local index_name="$1"
@@ -250,16 +271,16 @@ symlink_index() {
   local index_path; index_path="$CONF_SOURCE_DIR/$index_name"
   
   if [ ! -e "$index_path" ]; then
-    log_error "Source index path '$index_path' does not exist."
+    log_error "Source index path '$index_path' does not exist. Could not symlink index."
     return 1
   elif [ ! -r "$index_path" ]; then
-    log_error "Source index path '$index_path' is not readable."
+    log_error "Source index path '$index_path' is not readable. Could not symlink index."
     return 1
   elif [ ! -d "$index_path" ]; then
-    log_error "Source index path '$index_path' is not a directory. This is unusual."
+    log_error "Source index path '$index_path' is not a directory. This is unusual. Could not symlink index."
     return 1
   elif [ -L "$index_path" ]; then
-    log_error "Source index path '$index_path' is a symlink. This index has probably already been moved."
+    log_warning "Source index path '$index_path' is a symlink. This index has probably already been moved. Could not symlink index."
     return 1
   fi
 
@@ -298,7 +319,6 @@ symlink_indices() {
     result="$?"
     stop_at="$(date +%s)"
     if [ "$result" -gt 0 ] ; then
-      log_error "Could not symlink index: '$index_name'."
       errors=$(( $errors + 1 ))
     else
       local duration; duration="$(( $stop_at - $start_at ))"
@@ -307,41 +327,45 @@ symlink_indices() {
   done
   return $errors
 }
-
+#}}}
+#
 # Do the whole command line arguments / configuration file / help lambada in the
 # proper order.
-# 
+#
 # First, parse the command line arguments. to see if the user has given us a
 # configuration file.
-parse_args $@
-#
+parse_args "$@"
+
 # Do the help thing if the user so wishes.
 [ -n "$CONF_HELP" ] && {
   print_help
   exit 0
 }
-#
+
 # Check if we've got a configuration file via the command-line switches. If so,
 # load it. Then, parse the arguments *again* because by convention they should
 # override the stuff given in the configuration file.
-[ -n "$CONF_FILE" ] && load_conffile "$CONF_FILE" && parse_args $@
-#
+[ -n "$CONF_FILE" ] && load_conffile "$CONF_FILE" && parse_args "$@"
+
+# We apparently have some configuration now, let's check its sanity.
+errors=0
+check_CONF_DEBUG; errors=$(( $errors + $? ))
+check_CONF_DRY_RUN; errors=$(( $errors + $? ))
+check_CONF_INDEX_NAMES; errors=$(( $errors + $? ))
+check_CONF_SOURCE_DIR; errors=$(( $errors + $? ))
+check_CONF_DEST_DIR; errors=$(( $errors + $? ))
+
 # Print the config if so inclined.
 [ -n "$CONF_PRINT" ] && {
   print_config
   exit 0
 }
-#
-# We apparently have some configuration now, let's check its sanity.
-errors=0
-errors=$(( $errors + $(check_CONF_DEBUG) ))
-errors=$(( $errors + $(check_CONF_DRY_RUN) ))
-errors=$(( $errors + $(check_CONF_INDEX_NAMES) ))
-errors=$(( $errors + $(check_CONF_SOURCE_DIR) ))
-errors=$(( $errors + $(check_CONF_DEST_DIR) ))
+
+# Stop if there are any errors in the configuration.
 [ "$errors" -gt 0 ] && die "$errors error(s) found in the configuration, aborting."
 unset errors
 
+# Do the actual work
 symlink_indices $CONF_INDEX_NAMES
 errors=$?
 if [ "$errors" -gt 0 ]; then
@@ -351,4 +375,4 @@ else
   return 0
 fi
 
-# vim: set ts=2 sw=2 et cc=80:
+# vim: set tabstop=2 shiftwidth=0 expandtab colorcolumn=80 foldmethod=marker foldcolumn=3 foldlevel=0:
