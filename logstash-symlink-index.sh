@@ -210,7 +210,7 @@ check_CONF_DEBUG() {
 }
 
 check_CONF_DO_IT() {
-  [ -n "$CONF_DO_IT" ] && {
+  [ -z "$CONF_DO_IT" ] && {
     log_warning "Running with CONF_DO_IT disabled. Not doing anything, just reporting what would be done."
   }
   return 0
