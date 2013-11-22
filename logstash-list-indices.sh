@@ -5,7 +5,6 @@
 CONF_DATE_FROM=""
 CONF_DATE_TO=""
 CONF_DEBUG=""
-CONF_DRY_RUN=""
 CONF_FILE=""
 CONF_HELP=""
 CONF_INDEX_NAME_PREFIX="logstash-"
@@ -35,10 +34,6 @@ log_debug() {
   [ -n "$CONF_DEBUG" ] && log_stderr "[debug]   $*"
 }
 
-log_dryrun() {
-  [ -n "$CONF_DRY_RUN" ] && log "[dry-run] $*"
-}
-
 #}}}
 # Misc functions#{{{
 #
@@ -48,7 +43,7 @@ die() {
   exit 1
 }
 
-# Run the specified command (or not, depending on CONF_DRY_RUN).
+# Run the specified command
 #
 run() {
   [ -z "$*" ] && {
@@ -57,10 +52,6 @@ run() {
   }
 
   local command="$*"
-  [ -n "$CONF_DRY_RUN" ] && {
-    log_dryrun "Would run '$command'."
-    return 0
-  }
   eval $command
   local retval=$?
   [ "$retval" -gt 0 ] && log_error "Failed: $run"
@@ -80,8 +71,8 @@ run() {
 # spaces!
 #
 parse_args() {
-  local short_args="a:,c:,d,f:,h,n,s:,t:"
-  local long_args="age:,config:,debug,dry-run,from:,help,index-name-prefix:,print-config,source-dir:,to:"
+  local short_args="a:,c:,d,f:,h,s:,t:"
+  local long_args="age:,config:,debug,from:,help,index-name-prefix:,print-config,source-dir:,to:"
   local g; g=$(getopt -n logstash-list-indices -o $short_args -l $long_args -- "$@") || die "Could not parse arguments, aborting."
   log_debug "args: $args, getopt: $g"
 
@@ -102,10 +93,6 @@ parse_args() {
     # The debug switch.
     elif [ "$a" = "-d" -o "$a" = "--debug" ] ; then
       CONF_DEBUG="true"
-
-    # The dry-run switch.
-    elif [ "$a" = "-n" -o "$a" = "--dry-run" ] ; then
-      CONF_DRY_RUN="true"
 
     # The source directory. 
     elif [ "$a" = "-s" -o "$a" = "--source-dir" ] ; then
@@ -166,7 +153,6 @@ Options are:
   -c, --config       : Path to config file.
   -d, --debug        : Enable debug output.
   -h, --help         : This text
-  -n, --dry-run      : Don't do anyhing, just report what would be done.
       --print-config : Print the current configuration, then exit.
 
 NOTE: if you use date(1) formats in --from or --to, be sure to quote the 
@@ -185,7 +171,6 @@ print_config() {
   log "CONF_DATE_FROM='$CONF_DATE_FROM'"
   log "CONF_DATE_TO='$CONF_DATE_TO'"
   log "CONF_DEBUG='$CONF_DEBUG'"
-  log "CONF_DRY_RUN='$CONF_DRY_RUN'"
   log "CONF_FILE='$CONF_FILE'"
   log "CONF_HELP='$CONF_HELP'"
   log "CONF_INDEX_NAME_PREFIX='$CONF_INDEX_NAME_PREFIX'"
@@ -260,13 +245,6 @@ get_absolute_date() {
 
 check_CONF_DEBUG() {
   log_debug "Running in debug mode."
-  return 0
-}
-
-check_CONF_DRY_RUN() {
-  [ -n "$CONF_DRY_RUN" ] && {
-    log_warning "Running with CONF_DRY_RUN enabled. Not doing anything, just reporting what would be done."
-  }
   return 0
 }
 
@@ -363,7 +341,6 @@ errors=0
 check_CONF_DATE_FROM; errors=$(( $errors + $? ))
 check_CONF_DATE_TO; errors=$(( $errors + $? ))
 check_CONF_DEBUG; errors=$(( $errors + $? ))
-check_CONF_DRY_RUN; errors=$(( $errors + $? ))
 check_CONF_SOURCE_DIR; errors=$(( $errors + $? ))
 
 # Print the config if so inclined.
