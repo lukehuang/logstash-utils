@@ -3,7 +3,7 @@
 # The default configuration#{{{
 CONF_DEBUG=""
 CONF_DEST_DIR=""
-CONF_DRY_RUN=""
+CONF_DO_IT=""
 CONF_FILE=""
 CONF_HELP=""
 CONF_INDEX_NAMES=""
@@ -33,7 +33,7 @@ log_debug() {
 }
 
 log_dryrun() {
-  [ -n "$CONF_DRY_RUN" ] && log "[dry-run] $*"
+  [ -z "$CONF_DO_IT" ] && log "$*"
 }
 #}}}
 # Misc functions#{{{
@@ -46,7 +46,7 @@ die() {
 }
 
 #
-# Run the specified command (or not, depending on CONF_DRY_RUN).
+# Run the specified command (or not, depending on CONF_DO_IT).
 #
 run() {
   [ -z "$*" ] && {
@@ -55,7 +55,7 @@ run() {
   }
 
   local command="$*"
-  [ -n "$CONF_DRY_RUN" ] && {
+  [ -z "$CONF_DO_IT" ] && {
     log_dryrun "Would run '$command'."
     return 0
   }
@@ -78,8 +78,8 @@ run() {
 # spaces!
 #
 parse_args() {
-  local short_args="c:,d,f:,h,n,t:"
-  local long_args="config:,debug,dry-run,from-dir:,help,print-config,to-dir:"
+  local short_args="c:,d,f:,h,t:"
+  local long_args="config:,debug,do-it,from-dir:,help,print-config,to-dir:"
   local g; g=$(getopt -o "$short_args" -l "$long_args" -- "$@") || die "Could not parse arguments, aborting."
   log_debug "args: $args, getopt: $g"
 
@@ -102,9 +102,9 @@ parse_args() {
     elif [ "$a" = "-d" -o "$a" = "--debug" ] ; then
       CONF_DEBUG="true"
 
-    # The dry-run switch.
-    elif [ "$a" = "-n" -o "$a" = "--dry-run" ] ; then
-      CONF_DRY_RUN="true"
+    # The do-it switch.
+    elif [ "$a" = "--do-it" ] ; then
+      CONF_DO_IT="true"
 
     # The source directory. 
     elif [ "$a" = "-f" -o "$a" = "--from-dir" ] ; then
@@ -152,7 +152,7 @@ Options are:
   -c, --config       : Path to config file.
       --print-config : Print the current configuration, then exit.
   -d, --debug        : Enable debug output.
-  -n, --dry-run      : Don't do anyhing, just report what would be done.
+      --do-it        : Don't just report what would be done, really do it!
   -h, --help         : This text
 HERE
 }
@@ -166,7 +166,7 @@ HERE
 print_config() {
   log "CONF_DEBUG='$CONF_DEBUG'"
   log "CONF_DEST_DIR='$CONF_DEST_DIR'"
-  log "CONF_DRY_RUN='$CONF_DRY_RUN'"
+  log "CONF_DO_IT='$CONF_DO_IT'"
   log "CONF_FILE='$CONF_FILE'"
   log "CONF_HELP='$CONF_HELP'"
   log "CONF_INDEX_NAMES='$CONF_INDEX_NAMES'"
@@ -209,9 +209,9 @@ check_CONF_DEBUG() {
   return 0
 }
 
-check_CONF_DRY_RUN() {
-  [ -n "$CONF_DRY_RUN" ] && {
-    log_warning "Running with CONF_DRY_RUN enabled. Not doing anything, just reporting what would be done."
+check_CONF_DO_IT() {
+  [ -n "$CONF_DO_IT" ] && {
+    log_warning "Running with CONF_DO_IT disabled. Not doing anything, just reporting what would be done."
   }
   return 0
 }
@@ -271,7 +271,6 @@ symlink_index() {
   }
   
   local index_path; index_path="$CONF_SOURCE_DIR/$index_name"
-  
   if [ ! -e "$index_path" ]; then
     log_error "Source index path '$index_path' does not exist. Could not symlink index."
     return 1
@@ -286,23 +285,12 @@ symlink_index() {
     return 1
   fi
 
-  # rsync source index to the destination
-  run "rsync -a $index_path $CONF_DEST_DIR" || {
-    log_error ": $run"
-    return 1
-  }
-
-  # Remove the source index
-  run "rm -r $index_path" || {
-    log_error "Oops, something went wrong."
-    return 1
-  }
+  # move source index to the destination
+  run "mv $index_path $CONF_DEST_DIR" || return 1
 
   # Create the symlink in place of the source index
   local symlink_path="$CONF_DEST_DIR/$index_name"
-  run "ln -s $symlink_path $CONF_SOURCE_DIR" || {
-    log_error "Oops, something went wrong."
-  }
+  run "ln -s $symlink_path $CONF_SOURCE_DIR" || return 1
   
   return 0
 }
@@ -352,7 +340,7 @@ parse_args "$@"
 # We apparently have some configuration now, let's check its sanity.
 errors=0
 check_CONF_DEBUG; errors=$(( $errors + $? ))
-check_CONF_DRY_RUN; errors=$(( $errors + $? ))
+check_CONF_DO_IT; errors=$(( $errors + $? ))
 check_CONF_INDEX_NAMES; errors=$(( $errors + $? ))
 check_CONF_SOURCE_DIR; errors=$(( $errors + $? ))
 check_CONF_DEST_DIR; errors=$(( $errors + $? ))
